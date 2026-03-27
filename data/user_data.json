@@ -1,1 +1,17 @@
-{"goals": {}, "savings_history": []}
+{
+    "profile": {
+        "monthly_income": 60000,
+        "risk_appetite": "Moderate",
+        "last_updated": "2024-03-27",
+        "primary_bank": "Unknown",
+        "recurring_expenses_total": 0,
+        "last_audited": "2026-03-27"
+    },
+    "goals": {},
+    "financial_health": {
+        "savings_rate": 0.0,
+        "debt_ratio": 0.0,
+        "emergency_fund_months": 0
+    },
+    "savings_history": []
+}

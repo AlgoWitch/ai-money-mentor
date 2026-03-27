@@ -31,3 +31,24 @@ def update_goal(goal_name, target_amount, saved_so_far=0):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=4)
     return data
+def update_user_profile(profile_updates):
+    """
+    Updates the 'profile' and 'financial_health' sections of the DB.
+    profile_updates: dict containing fields like 'monthly_income', 'bank_name', etc.
+    """
+    data = get_data()
+    
+    # Update profile fields
+    if "profile" not in data:
+        data["profile"] = {}
+        
+    for key, value in profile_updates.items():
+        data["profile"][key] = value
+        
+    # Set a timestamp for 'Last Audited'
+    import datetime
+    data["profile"]["last_audited"] = datetime.datetime.now().strftime("%Y-%m-%d")
+    
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+    return data

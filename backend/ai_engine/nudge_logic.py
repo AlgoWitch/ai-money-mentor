@@ -2,6 +2,11 @@ from backend.utils.db_handler import get_data
 
 def generate_smart_nudge(transaction_data):
     user_data = get_data()
+    income = user_data.get("profile", {}).get("monthly_income", 0)
+    
+    # National Level Feature: Proactive Warning
+    if income > 0 and transaction_data.get("amount", 0) > (income * 0.1):
+        return "Bhai, this is a big expense (more than 10% of your salary)! Are you sure this fits your budget?"
     goals = user_data.get("goals", {})
     
     # 1. Get the first goal from the DB or default to "Savings"
