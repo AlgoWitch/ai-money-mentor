@@ -2,50 +2,68 @@ import axios from 'axios';
 
 const API_BASE = 'http://127.0.0.1:8000';
 
+// Axios Interceptor for injecting JWT
+const axiosInstance = axios.create({ baseURL: API_BASE });
+axiosInstance.interceptors.request.use((config) => {
+  const token = localStorage.getItem('niveshak_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 export const api = {
-  submitAnswer: async (field, value) => {
+  login: async (formDataParams) => {
+    // OAuth2 password flow requires form data (x-www-form-urlencoded)
+    const response = await axiosInstance.post(`/login`, formDataParams, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
+    localStorage.setItem('niveshak_token', response.data.access_token);
+    return response.data;
+  },
+
+  signup: async (email, password, name) => {
+    const response = await axiosInstance.post(`/signup`, { email, password, name });
+    return response.data;
+  },
+
+  logout: () => {
+    localStorage.removeItem('niveshak_token');
+  },
+
+  getMe: async () => {
     try {
-      const response = await axios.post(`${API_BASE}/submit-answer`, { field, value });
+      const response = await axiosInstance.get(`/me`);
       return response.data;
     } catch (error) {
-      console.error('API Error (submitAnswer):', error);
+      console.error('API Error (getMe):', error);
       throw error;
     }
+  },
+
+  submitAnswer: async (field, value) => {
+    const response = await axiosInstance.post(`/submit-answer`, { field, value });
+    return response.data;
   },
 
   setGoal: async (name, target) => {
-    try {
-      const response = await axios.post(`${API_BASE}/set-goal`, { name, target });
-      return response.data;
-    } catch (error) {
-      console.error('API Error (setGoal):', error);
-      throw error;
-    }
+    const response = await axiosInstance.post(`/set-goal`, { name, target });
+    return response.data;
   },
 
   processSms: async (smsContent) => {
-    try {
-      const response = await axios.post(`${API_BASE}/process-sms?sms_content=${encodeURIComponent(smsContent)}`);
-      return response.data;
-    } catch (error) {
-      console.error('API Error (processSms):', error);
-      throw error;
-    }
+    const response = await axiosInstance.post(`/process-sms?sms_content=${encodeURIComponent(smsContent)}`);
+    return response.data;
   },
 
   analyzeProfile: async (docText) => {
-    try {
-      const response = await axios.post(`${API_BASE}/analyze-profile?doc_text=${encodeURIComponent(docText)}`);
-      return response.data;
-    } catch (error) {
-      console.error('API Error (analyzeProfile):', error);
-      throw error;
-    }
+    const response = await axiosInstance.post(`/analyze-profile?doc_text=${encodeURIComponent(docText)}`);
+    return response.data;
   },
 
   healthCheck: async () => {
     try {
-      const response = await axios.get(`${API_BASE}/health-check`);
+      const response = await axiosInstance.get(`/health-check`);
       return response.data;
     } catch (error) {
       console.error('API Error (healthCheck):', error);
@@ -55,21 +73,21 @@ export const api = {
 
   fetchChatHistory: async () => {
     try {
-      const response = await axios.get(`${API_BASE}/chat-history`);
-      return response.data.history;
+      const response = await axiosInstance.get(`/chat-history`);
+      return response.data.history || [];
     } catch (error) {
       console.error('API Error (fetchChatHistory):', error);
       throw error;
     }
   },
 
-  getMe: async () => {
-    try {
-      const response = await axios.get(`${API_BASE}/me`);
-      return response.data;
-    } catch (error) {
-      console.error('API Error (getMe):', error);
-      throw error;
-    }
+  marketSentiment: async () => {
+    const response = await axiosInstance.get(`/market-sentiment`);
+    return response.data;
+  },
+
+  chat: async (text) => {
+    const response = await axiosInstance.post(`/chat`, { text });
+    return response.data;
   }
 };

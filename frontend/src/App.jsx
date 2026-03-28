@@ -1,45 +1,55 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Upload, Paperclip } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Send, LogOut, Paperclip } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import MessageBubble from './components/MessageBubble';
 import LoadingSpinner from './components/LoadingSpinner';
 import Phase2Upload from './components/Phase2Upload';
-import Phase3Insights from './components/Phase3Insights';
+import CommandCenter from './components/CommandCenter';
+import AuthModal from './components/AuthModal';
 import { api } from './utils/api';
-import axios from 'axios';
 
 function App() {
-  const [phase, setPhase] = useState(1); // 1: Onboarding, 2: Document Input, 3: Reveal
-  const [chatHistory, setChatHistory] = useState([
-    { isAI: true, text: "Namaste! I'm Niveshak, your AI Money Mentor. To give you the best advice, I'll need a tiny bit of context. First, what's your age?" }
-  ]);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState(null);
+  
+  const [phase, setPhase] = useState(1); // 1: Onboarding, 2: Chat/Proof, 3: Command Center
+  const [chatHistory, setChatHistory] = useState([]);
   const [loading, setLoading] = useState(false);
   const [input, setInput] = useState("");
-  const [quizStep, setQuizStep] = useState(0); // 0: Age, 1: City, 2: Goal, 3: Done
-  const [profile, setProfile] = useState({ age: "", city: "", goal: "" });
+  
+  // 5-Step FIRE Planner
+  const [quizStep, setQuizStep] = useState(0); 
+  const [profile, setProfile] = useState({});
   const [insightData, setInsightData] = useState(null);
 
   const scrollRef = useRef(null);
 
-  // Persistence: Fetch history and profile on mount
   useEffect(() => {
-    const initApp = async () => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      if (localStorage.getItem('niveshak_token')) {
+        const userData = await api.getMe();
+        setUser(userData.profile);
+        setIsAuthenticated(true);
+        await initApp(userData);
+      }
+    } catch {
+      localStorage.removeItem('niveshak_token');
+      setIsAuthenticated(false);
+    }
+  };
+
+  const initApp = async (userData) => {
       setLoading(true);
       try {
-        const user = await api.getMe();
-        if (user) {
-          setProfile({
-            age: user.age || "",
-            city: user.city_type || "",
-            goal: user.goal || ""
-          });
-
-          // If they've finished onboarding, skip to Phase 2
-          if (user.goal) {
-            setPhase(2);
-            setQuizStep(3);
-          }
-        }
+        setProfile({
+            age: userData.profile?.age || "",
+            monthly_income: userData.profile?.monthly_income || "",
+            fire_goal: userData.profile?.fire_goal || ""
+        });
 
         const history = await api.fetchChatHistory();
         if (history && history.length > 0) {
@@ -49,15 +59,34 @@ function App() {
             cards: msg.cards || []
           }));
           setChatHistory(formatted);
+          setPhase(2); // Jump straight to chat if history exists
+        } else {
+          startChat(userData.profile?.name);
         }
       } catch (error) {
         console.error("Initialization failed:", error);
       } finally {
         setLoading(false);
       }
-    };
-    initApp();
-  }, []);
+  };
+
+  const startChat = (name) => {
+    setChatHistory([{ 
+      isAI: true, 
+      text: `Namaste ${name || ''}! I'm Niveshak, your Private Wealth Concierge. Let's build your FIRE (Financial Independence, Retire Early) roadmap. First, what is your current age?`,
+      cards: []
+    }]);
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setIsAuthenticated(false);
+    setUser(null);
+    setChatHistory([]);
+    setPhase(1);
+    setQuizStep(0);
+    setProfile({});
+  };
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -69,24 +98,22 @@ function App() {
     if (!input.trim()) return;
     const userMsg = input.trim();
     setInput("");
-    
-    // Add user message to UI
     setChatHistory(prev => [...prev, { isAI: false, text: userMsg }]);
     setLoading(true);
 
     if (phase === 1) {
       await handleQuizFlow(userMsg);
-    } else {
-      // Standard Chat / SMS handling
+    } else if (phase === 2) {
+      // Integrated AI Chat Logic
       try {
-        const res = await axios.post(`http://127.0.0.1:8000/chat`, { text: userMsg });
+        const res = await api.chat(userMsg);
         setChatHistory(prev => [...prev, { 
           isAI: true, 
-          text: res.data.text,
-          cards: res.data.cards 
+          text: res.text,
+          cards: res.cards || []
         }]);
       } catch (err) {
-        setChatHistory(prev => [...prev, { isAI: true, text: "Backend is taking logic break. Try again?" }]);
+        setChatHistory(prev => [...prev, { isAI: true, text: "Backend is taking a logic break. Try again?" }]);
       }
     }
     setLoading(false);
@@ -95,55 +122,69 @@ function App() {
   const handleQuizFlow = async (userMsg) => {
     try {
       if (quizStep === 0) {
-        setProfile(prev => ({ ...prev, age: userMsg }));
-        await api.submitAnswer("age", userMsg);
-        setChatHistory(prev => [...prev, { isAI: true, text: `Great. And which city do you live in?` }]);
+        const val = parseInt(userMsg);
+        setProfile(prev => ({ ...prev, age: val || 30 }));
+        await api.submitAnswer("age", val || 30);
+        setChatHistory(prev => [...prev, { isAI: true, text: `Excellent. And what is your total monthly income (in ₹)?` }]);
         setQuizStep(1);
       } else if (quizStep === 1) {
-        setProfile(prev => ({ ...prev, city: userMsg }));
-        await api.submitAnswer("city_type", userMsg);
-        setChatHistory(prev => [...prev, { isAI: true, text: `Got it. Finally, what's your main financial goal right now? (e.g., Buy a bike, Emergency fund, Travel)` }]);
+        const val = parseFloat(userMsg.replace(/[^0-9.]/g, ''));
+        setProfile(prev => ({ ...prev, monthly_income: val || 100000 }));
+        await api.submitAnswer("monthly_income", val || 100000);
+        setChatHistory(prev => [...prev, { isAI: true, text: `Got it. Roughly how much of that goes toward monthly expenses?` }]);
         setQuizStep(2);
       } else if (quizStep === 2) {
-        setProfile(prev => ({ ...prev, goal: userMsg }));
-        await api.setGoal(userMsg, 50000); // Default target amount for demo
-        await api.submitAnswer("goal", userMsg);
-        setChatHistory(prev => [...prev, { isAI: true, text: `Awesome. Now, to help me give you actionable advice, I need to understand your cash flow.` }]);
+        const val = parseFloat(userMsg.replace(/[^0-9.]/g, ''));
+        setProfile(prev => ({ ...prev, monthly_expenses: val || 50000 }));
+        await api.submitAnswer("monthly_expenses", val || 50000);
+        setChatHistory(prev => [...prev, { isAI: true, text: `Okay. And what are your total current savings or investments right now?` }]);
         setQuizStep(3);
+      } else if (quizStep === 3) {
+        const val = parseFloat(userMsg.replace(/[^0-9.]/g, ''));
+        setProfile(prev => ({ ...prev, current_savings: val || 200000 }));
+        await api.submitAnswer("current_savings", val || 200000);
+        setChatHistory(prev => [...prev, { isAI: true, text: `Almost done. What is your 'FIRE' target number? (How much money do you want to retire with?)` }]);
+        setQuizStep(4);
+      } else if (quizStep === 4) {
+        setProfile(prev => ({ ...prev, fire_goal: userMsg }));
+        await api.submitAnswer("fire_goal", userMsg);
+        await api.setGoal("Retirement FIRE", 50000000); 
         
-        setTimeout(() => {
-           setPhase(2);
-        }, 1500);
+        setChatHistory(prev => [...prev, { isAI: true, text: `Generating your personalized SIP Roadmap using Niveshak AI Engine...` }]);
+        const firePlanRes = await api.submitAnswer("trigger_fire_plan", "true"); 
+        
+        setChatHistory(prev => [...prev, { 
+            isAI: true, 
+            text: `Roadmap Generated! Based on your profile:\n\nIf you invest just ₹${Math.max(10000, ((profile.monthly_income || 100000)*0.3)).toFixed(0)} every month in a broad index fund (expected 12% returns), you will hit your FIRE goal in approximately 15 years.\n\nNow, let's verify your income structure. You can ask me financial questions, or click the Dashboard button for unified views.` 
+        }]);
+        
+        setQuizStep(5);
+        setTimeout(() => setPhase(2), 2000);
       }
     } catch (error) {
-       setChatHistory(prev => [...prev, { isAI: true, text: "I had a tiny hiccup saving that. Can you tell me again?" }]);
+       setChatHistory(prev => [...prev, { isAI: true, text: `I had a tiny hiccup. Could you say that again?` }]);
     }
   };
 
-  const handleDocAnalysis = async (content, isText = false) => {
+  const loadCommandCenter = async () => {
     setLoading(true);
     try {
-      let data;
-      if (isText) {
-        data = await api.processSms(content);
-      } else {
-        data = await api.analyzeProfile(content);
-      }
-      
-      // Fetch the final health check dashboard metrics
       const healthData = await api.healthCheck();
-      
       setInsightData({
           ...healthData,
-          nudge: data.nudge || data.ai_verification || "Ready to level up your finances?"
+          nudge: healthData.expert_advice || "Ready to command your wealth?"
       });
-
       setPhase(3);
     } catch (e) {
-      setChatHistory(prev => [...prev, { isAI: true, text: "Hmm, I couldn't read that properly. Could you try again?" }]);
+      console.error(e);
+      setChatHistory(prev => [...prev, { isAI: true, text: "Failed to load command center." }]);
     }
     setLoading(false);
   };
+
+  if (!isAuthenticated) {
+    return <AuthModal onLoginSuccess={checkAuth} />;
+  }
 
   return (
     <div className="flex flex-col h-screen max-w-chat mx-auto bg-slate-50 sm:bg-transparent">
@@ -153,38 +194,38 @@ function App() {
         <div>
           <h1 className="text-xl font-bold tracking-tight text-ql-dark flex items-center gap-2">
             Niveshak AI
-            <span className="bg-ql-primary text-ql-dark text-xs px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider">Beta</span>
+            <span className="bg-ql-primary text-ql-dark text-[10px] px-1.5 py-0.5 rounded-sm font-bold uppercase tracking-widest">FIRE</span>
           </h1>
-          <p className="text-sm text-ql-text/80 font-medium">Your Private Wealth Mentor</p>
+          <p className="text-sm text-ql-text/80 font-medium">{user?.name ? `Command Center • ${user.name}` : 'Private Wealth Mentor'}</p>
         </div>
         
-        {/* Progress Indicator */}
-        <div className="flex gap-1.5 sm:gap-2 items-center">
-            <span className={`stage-pill ${phase >= 1 ? 'stage-pill-active' : 'stage-pill-idle'}`}>Setup</span>
-            <span className="text-slate-300 text-xs">→</span>
-            <span className={`stage-pill ${phase >= 2 ? 'stage-pill-active' : (phase > 2 ? 'stage-pill-done' : 'stage-pill-idle')}`}>Verify</span>
-            <span className="text-slate-300 text-xs">→</span>
-            <span className={`stage-pill ${phase === 3 ? 'stage-pill-active' : 'stage-pill-idle'}`}>Insights</span>
+        <div className="flex gap-2.5 sm:gap-4 items-center">
+            <div className="hidden sm:flex gap-1.5 items-center">
+                <span className={`stage-pill ${phase >= 1 ? 'stage-pill-active' : 'stage-pill-idle'}`}>Setup</span>
+                <span className="text-slate-300 text-xs">→</span>
+                <span onClick={() => phase === 3 && setPhase(2)} className={`stage-pill cursor-pointer ${phase === 2 ? 'stage-pill-active' : (phase === 3 ? 'stage-pill-done' : 'stage-pill-idle')}`}>Chat</span>
+                <span className="text-slate-300 text-xs">→</span>
+                <span onClick={loadCommandCenter} className={`stage-pill cursor-pointer ${phase === 3 ? 'stage-pill-active' : 'stage-pill-idle'}`}>Dashboard</span>
+            </div>
+            <button onClick={handleLogout} className="p-2 bg-white rounded-full shadow-soft text-slate-400 hover:text-red-500 transition-colors">
+              <LogOut size={16} />
+            </button>
         </div>
       </header>
 
       {/* CHAT AREA */}
       <main ref={scrollRef} className="flex-grow overflow-y-auto px-4 py-6 chat-scroll relative flex flex-col gap-2">
-        {chatHistory.map((msg, idx) => (
-          <MessageBubble key={idx} message={msg.text} isAI={msg.isAI} cards={msg.cards} />
-        ))}
+        <AnimatePresence>
+            {chatHistory.map((msg, idx) => (
+             <MessageBubble key={idx} message={msg.text} isAI={msg.isAI} cards={msg.cards} />
+            ))}
+        </AnimatePresence>
         
         {loading && <LoadingSpinner />}
 
-        {phase === 2 && !loading && (
-           <motion.div initial={{opacity: 0, y: 10}} animate={{opacity: 1, y: 0}} className="mt-4">
-              <Phase2Upload onUpload={handleDocAnalysis} />
-           </motion.div>
-        )}
-
         {phase === 3 && !loading && insightData && (
            <motion.div initial={{opacity: 0, scale: 0.95}} animate={{opacity: 1, scale: 1}} className="mt-4 mb-8">
-              <Phase3Insights data={insightData} userProfile={profile} />
+              <CommandCenter data={insightData} userProfile={profile} />
            </motion.div>
         )}
       </main>
@@ -203,7 +244,7 @@ function App() {
                type="text" 
                value={input}
                onChange={(e) => setInput(e.target.value)}
-               placeholder={phase === 1 ? "Type your response..." : "Paste your SMS or statement text here..."}
+               placeholder={phase === 1 ? "Type your response..." : "Ask your mentor anything..."}
                className="flex-grow bg-transparent border-none outline-none text-ql-text placeholder-slate-400 font-medium"
                disabled={loading || phase === 3}
              />
@@ -216,7 +257,7 @@ function App() {
              </button>
           </form>
           <div className="text-center mt-3 text-[10px] text-slate-400 uppercase tracking-widest font-semibold flex items-center justify-center gap-2">
-            Bank-Level Encryption <span className="w-1 h-1 bg-green-400 rounded-full inline-block"></span> Local AI
+            Bank-Level Encryption <span className="w-1 h-1 bg-green-400 rounded-full inline-block"></span> Groq Llama 3.1
           </div>
         </footer>
       )}

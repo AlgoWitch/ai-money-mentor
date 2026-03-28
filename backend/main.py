@@ -1,168 +1,213 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import json
 
 # Internal Imports
+from backend.utils.auth import verify_password, get_password_hash, create_access_token, decode_access_token
+from backend.utils.db_handler import save_user_profile, get_user_profile, update_goal, update_user_fields, db
 from backend.ai_engine.parser import parse_indian_sms
 from backend.ai_engine.nudge_logic import generate_smart_nudge
-from backend.ai_engine.document_parser import extract_financial_profile
+from backend.ai_engine.groq_parser import extract_6_dimensions, generate_fire_roadmap
 from backend.ai_engine.analyzer import FinancialConsultant
-from backend.database.mongo import (
-    create_or_update_user, 
-    get_user, 
-    add_chat_message, 
-    update_user_fields,
-    get_chat_history
-)
-from backend.utils.privacy import mask_sensitive_info
 from backend.ai_engine.discovery import generate_contextual_question
+from backend.api.market_data import get_nifty50_sentiment
+from backend.utils.privacy import mask_sensitive_info
+from datetime import datetime
 
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="Niveshak AI - National Level Agent")
+app = FastAPI(title="Advanced Niveshak AI - Luxury Wealth Tech")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Mongo database initializes on import via backend.database.mongo
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+# --- Dependency ---
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    payload = decode_access_token(token)
+    if not payload:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    user = await get_user_profile(user_id)
+    return user["user_id"]
+
+# --- Auth Routes ---
+class SignupRequest(BaseModel):
+    email: str
+    password: str
+    name: str
+
+@app.post("/signup", status_code=status.HTTP_201_CREATED)
+async def signup(req: SignupRequest):
+    existing = await db.users.find_one({"email": req.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    hashed_password = get_password_hash(req.password)
+    user_id = req.email
+    
+    await save_user_profile(user_id, {
+        "email": req.email, 
+        "password": hashed_password, 
+        "profile": {"name": req.name},
+        "chat_history": []
+    })
+    
+    token = create_access_token(data={"sub": user_id})
+    return {"access_token": token, "token_type": "bearer", "user": {"name": req.name, "email": req.email}}
+
+@app.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = await db.users.find_one({"email": form_data.username})
+    if not user or not verify_password(form_data.password, user.get("password", "")):
+        raise HTTPException(status_code=400, detail="Incorrect email or password")
+    
+    token = create_access_token(data={"sub": user["user_id"]})
+    name = user.get("profile", {}).get("name", "User")
+    return {"access_token": token, "token_type": "bearer", "user": {"name": name, "email": user["user_id"]}}
+
+@app.get("/me")
+async def get_me(user_id: str = Depends(get_current_user)):
+    user = await get_user_profile(user_id)
+    if "password" in user:
+        del user["password"]
+    if "_id" in user:
+        del user["_id"]
+    return user
+
+# --- Application Routes ---
 class GoalRequest(BaseModel):
     name: str
     target: float
 
-@app.get("/")
-def home():
-    return {"status": "Money AI is Live 🚀", "version": "Phase 4.1-Final"}
-
 @app.post("/set-goal")
-async def set_goal(goal: GoalRequest):
-    update_user_fields("demo_user", {"goal": goal.name, "target_amount": goal.target})
+async def set_goal(goal: GoalRequest, user_id: str = Depends(get_current_user)):
+    await update_goal(user_id, goal.name, goal.target)
     return {"message": f"Goal '{goal.name}' set for ₹{goal.target}!"}
 
 @app.post("/process-sms")
-async def process_sms(sms_content: str):
+async def process_sms(sms_content: str, user_id: str = Depends(get_current_user)):
     try:
-        # 1. Privacy Masking
         safe_sms = mask_sensitive_info(sms_content)
-        
-        # 2. AI Parsing
         raw_data = parse_indian_sms(safe_sms)
-        
-        # 3. Handle JSON safely
-        if isinstance(raw_data, str):
-            data = json.loads(raw_data)
-        else:
-            data = raw_data
-
-        # 4. Generate Smart Nudge based on Profile & Goals
+        data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
         nudge = generate_smart_nudge(data)
-
-        return {
-            "status": "success",
-            "extracted_data": data,
-            "nudge": nudge
-        }
+        return {"status": "success", "extracted_data": data, "nudge": nudge}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 @app.post("/analyze-profile")
-async def analyze_profile(doc_text: str):
+async def analyze_profile(doc_text: str, user_id: str = Depends(get_current_user)):
     try:
-        # 1. AI extracts data from document snippet
-        raw_extraction = extract_financial_profile(doc_text)
-        
-        # 2. Expert Logic: Parse the JSON string from AI
-        if isinstance(raw_extraction, str):
-            extracted_data = json.loads(raw_extraction)
-        else:
-            extracted_data = raw_extraction
-        
-        # 3. Standardize Keys (Crucial Fix)
-        # Some AI models might use 'monthly_income', some 'AverageMonthlyIncome'
-        # We standardize it here for our DB handler.
-        profile_update = {
-            "monthly_income": extracted_data.get("monthly_income") or extracted_data.get("AverageMonthlyIncome", 0),
-            "primary_bank": extracted_data.get("bank_name") or extracted_data.get("BankName", "Unknown"),
-            "recurring_expenses_total": extracted_data.get("recurring_debits_total") or extracted_data.get("RecurringDebits", 0)
-        }
-        
-        # 4. Update the Unified Data Model (Persistence)
-        update_user_fields("demo_user", profile_update)
-        
-        # 5. Get refreshed Health Score
-        metrics = FinancialConsultant.calculate_health_metrics()
+        # Use Groq LLM logic here to extract financial proof points
+        dimensions = extract_6_dimensions(doc_text)
+        await update_user_fields(user_id, {"six_dimensions": dimensions})
         
         return {
             "status": "Success",
-            "analysis": "Financial Graph Updated.",
-            "metrics_at_a_glance": metrics,
-            "ai_verification": "I've locked in your income and bank details for future nudges."
+            "analysis": "Financial Proof verified.",
+            "dimensions": dimensions,
+            "ai_verification": "I've locked in your wealth profile points."
         }
     except Exception as e:
-        return {"status": "error", "message": f"Parsing failed: {str(e)}"}
+        return {"status": "error", "message": str(e)}
 
 @app.get("/health-check")
-async def health_check():
-    metrics = FinancialConsultant.calculate_health_metrics()
-    advice = FinancialConsultant.get_expert_advice(metrics)
-    return {
-        "metrics": metrics,
-        "expert_advice": advice
+async def health_check(user_id: str = Depends(get_current_user)):
+    user = await get_user_profile(user_id)
+    profile = user.get("profile", {})
+    dimensions = profile.get("six_dimensions", {})
+    
+    score = 50
+    good_status = ["Strong", "On Track", "High", "Achievable"]
+    for _, dim in dimensions.items():
+        if isinstance(dim, dict) and dim.get("status") in good_status:
+           score += 10
+        elif isinstance(dim, dict) and dim.get("status") == "Unknown":
+           score += 2
+        else:
+           score -= 5
+    score = min(max(score, 0), 100)
+    
+    savings = profile.get("current_savings", 0)
+    expenses = profile.get("monthly_expenses", 0)
+    runway = round(savings / expenses, 1) if expenses > 0 else 0
+    runway_str = f"{runway} Months"
+           
+    advice = "Your profile is evolving. Upload more documents to increase accuracy."
+    if score >= 80:
+        advice = "Excellent health. Start aggressively deploying capital to equity markets."
+    elif score >= 60:
+        advice = "Decent health, optimize your tax structure."
+    else:
+        advice = "Warning: Rebuild your emergency fund before aggressive investments."
+        
+    metrics = {
+       "score": score,
+       "runway": runway_str,
+       "status": "On Track" if score > 70 else "Attention Needed"
     }
-@app.get("/get-daily-nudge")
-async def get_daily_nudge():
-    # This combines the Gap Analysis with a friendly greeting
-    question = generate_contextual_question()
-    return {
-        "type": "discovery_question",
-        "message": question,
-        "action_required": True
-    }
+    
+    return {"metrics": metrics, "expert_advice": f"Bhai, {advice.lower()}", "dimensions": dimensions}
+
 class AnswerRequest(BaseModel):
-    field: str  # e.g., "age" or "city_type"
+    field: str
     value: str
 
 @app.post("/submit-answer")
-async def submit_answer(answer: AnswerRequest):
-    # Update the profile with the user's answer
-    update_user_fields("demo_user", {answer.field: answer.value})
-    
-    # Immediately check if there is a NEW question now
+async def submit_answer(answer: AnswerRequest, user_id: str = Depends(get_current_user)):
+    if answer.field == "trigger_fire_plan":
+        user = await get_user_profile(user_id)
+        p = user.get("profile", {})
+        roadmap = generate_fire_roadmap(
+            p.get("age", 30),
+            p.get("monthly_income", 100000),
+            p.get("monthly_expenses", 50000),
+            p.get("current_savings", 200000),
+            float(p.get("fire_goal", 50000000))
+        )
+        return {"status": "Roadmap Generated", "roadmap": roadmap}
+        
+    await update_user_fields(user_id, {answer.field: answer.value})
     next_q = generate_contextual_question()
-    
-    return {
-        "status": "Profile Updated",
-        "message": f"Got it! I've updated your {answer.field}.",
-        "next_question": next_q
-    }
+    return {"status": "Profile Updated", "message": f"Got it!", "next_question": next_q}
+
+@app.get("/market-sentiment")
+async def market_sentiment(user_id: str = Depends(get_current_user)):
+    return get_nifty50_sentiment()
 
 @app.get("/chat-history")
-async def chat_history():
-    history = get_chat_history("demo_user")
-    return {"history": history}
-
-@app.get("/me")
-async def get_me():
-    user = get_user("demo_user")
-    return user
+async def chat_history(user_id: str = Depends(get_current_user)):
+    user = await get_user_profile(user_id)
+    return {"history": user.get("chat_history", [])}
 
 class ChatRequest(BaseModel):
     text: str
 
+async def _add_chat_message(user_id: str, role: str, message: str, cards: list = None):
+    user = await get_user_profile(user_id)
+    history = user.get("chat_history", [])
+    history.append({
+        "role": role,
+        "message": message,
+        "cards": cards or [],
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    await update_user_fields(user_id, {"chat_history": history})
+
 @app.post("/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
     # Save user message
-    add_chat_message("demo_user", "user", req.text)
+    await _add_chat_message(user_id, "user", req.text)
 
     text = req.text.lower()
     cards = []
@@ -178,7 +223,6 @@ async def chat(req: ChatRequest):
             "content": f"**Savings Rate:** {metrics['savings_rate']}%\n**Emergency Fund:** {metrics['emergency_fund_progress']}%\n\n{advice}"
         })
     elif "rs" in text or "debited" in text or "credited" in text or "a/c" in text:
-        # Route to SMS parser
         try:
             safe_sms = mask_sensitive_info(req.text)
             raw_data = parse_indian_sms(safe_sms)
@@ -186,7 +230,6 @@ async def chat(req: ChatRequest):
             nudge = generate_smart_nudge(data)
             
             response_text = nudge
-            
             amount = data.get("amount") or data.get("Amount")
             merchant = data.get("merchant_name") or data.get("MerchantName", "Unknown")
             txn_type = str(data.get("transaction_type") or data.get("TransactionType", "Unknown")).lower()
@@ -200,17 +243,16 @@ async def chat(req: ChatRequest):
         except Exception as e:
             response_text = "I couldn't parse that transaction properly."
     else:
-        # Default response
         response_text = generate_contextual_question()
     
     # Save AI response
-    add_chat_message("demo_user", "ai", response_text, cards)
+    await _add_chat_message(user_id, "ai", response_text, cards)
     
     return {
         "text": response_text,
         "cards": cards
     }
+
 if __name__ == "__main__":
     import uvicorn
-    # Using string import for reload to work
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
