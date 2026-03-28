@@ -52,12 +52,12 @@ export const api = {
   },
 
   processSms: async (smsContent) => {
-    const response = await axiosInstance.post(`/process-sms?sms_content=${encodeURIComponent(smsContent)}`);
+    const response = await axiosInstance.post(`/process-sms`, { sms_content: smsContent });
     return response.data;
   },
 
   analyzeProfile: async (docText) => {
-    const response = await axiosInstance.post(`/analyze-profile?doc_text=${encodeURIComponent(docText)}`);
+    const response = await axiosInstance.post(`/analyze-profile`, { doc_text: docText });
     return response.data;
   },
 

@@ -1,48 +1,62 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, AlertCircle, Activity, Heart, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { ShieldCheck, Activity, Heart, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import { api } from '../utils/api';
+import LoadingSpinner from './LoadingSpinner';
 
-export default function CommandCenter({ data, userProfile }) {
+export default function CommandCenter() {
   const [market, setMarket] = useState(null);
+  const [healthData, setHealthData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   
   useEffect(() => {
      let mounted = true;
-     api.marketSentiment().then(res => {
-         if (mounted) setMarket(res);
-     }).catch(err => console.error("Market fetch error"));
+     const fetchData = async () => {
+         try {
+             const mData = await api.marketSentiment();
+             const hData = await api.healthCheck();
+             if (mounted) {
+                 setMarket(mData);
+                 setHealthData(hData);
+             }
+         } catch (e) {
+             console.error("Dashboard fetch error", e);
+             if (mounted) setError("Failed to load dashboard data.");
+         } finally {
+             if (mounted) setLoading(false);
+         }
+     };
+     fetchData();
      return () => { mounted = false; };
   }, []);
 
-  const d = data.metrics || {};
+  if (loading) return <div className="h-full flex items-center justify-center"><LoadingSpinner /></div>;
+  if (error) return <div className="p-8 text-center text-red-500">{error}</div>;
+
+  const d = healthData.metrics || {};
   const score = d.score || 0;
-  const isGood = score >= 60;
-  
-  const dims = data.dimensions || {};
+  const dims = healthData.dimensions || {};
 
   return (
-    <div className="w-full flex justify-start -mt-2 pb-10">
+    <div className="w-full h-full overflow-y-auto pb-10 pr-2">
       <div className="w-full animate-in fade-in zoom-in-95 duration-500">
         
-        {/* Mentor's Advice (Hinglish logic from backend) */}
-        <MessageBubble isAI={true} message={data.expert_advice || "Welcome to your command center."} />
+        <MessageBubble isAI={true} message={healthData.expert_advice || "Welcome to your command center."} />
         
         <div className="bg-white rounded-3xl p-6 md:p-8 shadow-soft border border-ql-bg ml-2 sm:ml-12 mt-2 relative overflow-hidden">
           
           <div className="absolute top-0 right-0 w-48 h-48 bg-ql-primary/10 rounded-bl-full -z-0"></div>
 
           <div className="relative z-10">
-            
-            {/* Market Ticker */}
-            <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
+            <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-4 gap-4">
                <div>
                   <h2 className="text-2xl font-bold text-ql-dark tracking-tight">Command Center</h2>
                   <p className="text-sm text-slate-500 mt-1">Unified Wealth Analytics</p>
                </div>
                
                {market && (
-                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center gap-3 shadow-inner-soft">
+                  <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100 flex items-center gap-3 shadow-inner-soft self-start md:self-auto">
                      <Activity size={18} className="text-slate-400" />
                      <div>
                         <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Live Market</div>
@@ -58,7 +72,6 @@ export default function CommandCenter({ data, userProfile }) {
                )}
             </div>
 
-            {/* Top Metrics Grid */}
             <div className="grid grid-cols-2 gap-4 mb-8">
               <div className="bg-gradient-to-br from-ql-bg to-white p-5 rounded-2xl border border-ql-primary/30 shadow-sm">
                 <div className="text-xs uppercase tracking-widest text-ql-dark/60 font-semibold mb-2 flex items-center gap-1.5">
@@ -78,12 +91,11 @@ export default function CommandCenter({ data, userProfile }) {
               </div>
             </div>
 
-            {/* 6 Dimensions Analysis */}
             <h3 className="text-sm font-bold text-ql-dark mb-4 tracking-wider uppercase">The 6 Dimensions of Wealth</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-8">
-               {Object.entries(dims).map(([key, val]) => {
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+               {Object.entries(dims).length > 0 ? Object.entries(dims).map(([key, val]) => {
                   const status = val.status || 'Unknown';
-                  const isPos = status === 'Strong' || status === 'On Track' || status === 'High';
+                  const isPos = status === 'Strong' || status === 'On Track' || status === 'High' || status === 'Achievable';
                   const isAlert = status === 'Weak' || status === 'Critical';
                   
                   return (
@@ -97,16 +109,15 @@ export default function CommandCenter({ data, userProfile }) {
                        <p className="text-xs text-slate-600 leading-relaxed font-medium line-clamp-2" title={val.details}>{val.details}</p>
                     </div>
                   );
-               })}
+               }) : (
+                 <div className="col-span-full text-center p-4 text-slate-500 text-sm">Upload a bank statement in the Chat to analyze your dimensions.</div>
+               )}
             </div>
             
-            <div className="mt-6 pt-5 border-t border-slate-100 flex items-center justify-between">
+            <div className="mt-6 pt-5 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                <div className="text-xs text-slate-400 flex items-center gap-1">
                   <RefreshCw size={12} /> Profile Evolving Continuously
                </div>
-               <button onClick={() => window.location.reload()} className="text-sm text-ql-dark font-semibold hover:text-black transition-colors underline decoration-ql-primary decoration-2 underline-offset-4">
-                  Add More Context
-               </button>
             </div>
           </div>
         </div>

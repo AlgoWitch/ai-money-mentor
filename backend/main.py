@@ -2,6 +2,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import json
+from typing import Any
 
 # Internal Imports
 from backend.utils.auth import verify_password, get_password_hash, create_access_token, decode_access_token
@@ -94,10 +95,13 @@ async def set_goal(goal: GoalRequest, user_id: str = Depends(get_current_user)):
     await update_goal(user_id, goal.name, goal.target)
     return {"message": f"Goal '{goal.name}' set for ₹{goal.target}!"}
 
+class SmsRequest(BaseModel):
+    sms_content: str
+
 @app.post("/process-sms")
-async def process_sms(sms_content: str, user_id: str = Depends(get_current_user)):
+async def process_sms(req: SmsRequest, user_id: str = Depends(get_current_user)):
     try:
-        safe_sms = mask_sensitive_info(sms_content)
+        safe_sms = mask_sensitive_info(req.sms_content)
         raw_data = parse_indian_sms(safe_sms)
         data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
         nudge = generate_smart_nudge(data)
@@ -105,11 +109,14 @@ async def process_sms(sms_content: str, user_id: str = Depends(get_current_user)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+class ProfileRequest(BaseModel):
+    doc_text: str
+
 @app.post("/analyze-profile")
-async def analyze_profile(doc_text: str, user_id: str = Depends(get_current_user)):
+async def analyze_profile(req: ProfileRequest, user_id: str = Depends(get_current_user)):
     try:
         # Use Groq LLM logic here to extract financial proof points
-        dimensions = extract_6_dimensions(doc_text)
+        dimensions = extract_6_dimensions(req.doc_text)
         await update_user_fields(user_id, {"six_dimensions": dimensions})
         
         return {
@@ -161,7 +168,7 @@ async def health_check(user_id: str = Depends(get_current_user)):
 
 class AnswerRequest(BaseModel):
     field: str
-    value: str
+    value: Any
 
 @app.post("/submit-answer")
 async def submit_answer(answer: AnswerRequest, user_id: str = Depends(get_current_user)):
