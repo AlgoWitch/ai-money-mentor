@@ -11,7 +11,17 @@ from backend.utils.db_handler import update_goal, ensure_db_exists, update_user_
 from backend.utils.privacy import mask_sensitive_info
 from backend.ai_engine.discovery import generate_contextual_question
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Niveshak AI - National Level Agent")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize DB on startup
 ensure_db_exists()
@@ -127,6 +137,55 @@ async def submit_answer(answer: AnswerRequest):
         "status": "Profile Updated",
         "message": f"Got it! I've updated your {answer.field}.",
         "next_question": next_q
+    }
+
+class ChatRequest(BaseModel):
+    text: str
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    text = req.text.lower()
+    cards = []
+    response_text = "I'm your AI Money Mentor. What's on your mind?"
+    
+    if "save" in text or "invest" in text or "goal" in text:
+        metrics = FinancialConsultant.calculate_health_metrics()
+        advice = FinancialConsultant.get_expert_advice(metrics)
+        response_text = "Here is a quick look at your financial health:"
+        cards.append({
+            "type": "problem" if metrics["status"] == "Attention Needed" else "plan",
+            "title": "Health Check",
+            "content": f"**Savings Rate:** {metrics['savings_rate']}%\n**Emergency Fund:** {metrics['emergency_fund_progress']}%\n\n{advice}"
+        })
+    elif "rs" in text or "debited" in text or "credited" in text or "a/c" in text:
+        # Route to SMS parser
+        try:
+            safe_sms = mask_sensitive_info(req.text)
+            raw_data = parse_indian_sms(safe_sms)
+            data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
+            nudge = generate_smart_nudge(data)
+            
+            response_text = nudge
+            
+            amount = data.get("amount") or data.get("Amount")
+            merchant = data.get("merchant_name") or data.get("MerchantName", "Unknown")
+            txn_type = str(data.get("transaction_type") or data.get("TransactionType", "Unknown")).lower()
+            
+            if txn_type == "debit":
+                cards.append({
+                    "type": "action",
+                    "title": "Expense Tracking",
+                    "content": f"Recorded an expense of ₹{amount} at {merchant}."
+                })
+        except Exception as e:
+            response_text = "I couldn't parse that transaction properly."
+    else:
+        # Default response
+        response_text = generate_contextual_question()
+    
+    return {
+        "text": response_text,
+        "cards": cards
     }
 if __name__ == "__main__":
     import uvicorn

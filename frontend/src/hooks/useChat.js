@@ -41,22 +41,36 @@ export function useChat() {
       setStageIndex(stageRef.current)
     }
 
-    // Simulate network latency — replace with real fetch('/analyze')
-    await new Promise(resolve => setTimeout(resolve, 1200 + Math.random() * 800))
+    // Real API Call to Backend
+    try {
+      const res = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text })
+      })
+      const response = await res.json()
 
-    const response = getMockResponse(text)
+      const aiMsg = {
+        id: nextId(),
+        role: 'ai',
+        text: response.text || "I processed that.",
+        cards: response.cards || [],
+        quickReplies: [],
+        timestamp: new Date(),
+      }
 
-    const aiMsg = {
-      id: nextId(),
-      role: 'ai',
-      text: response.text,
-      cards: response.cards || [],
-      quickReplies: [],
-      timestamp: new Date(),
+      setIsTyping(false)
+      setMessages(prev => [...prev, aiMsg])
+    } catch (err) {
+      console.error(err)
+      setIsTyping(false)
+      setMessages(prev => [...prev, {
+        id: nextId(),
+        role: 'ai',
+        text: "I'm having trouble connecting to my backend right now.",
+        timestamp: new Date()
+      }])
     }
-
-    setIsTyping(false)
-    setMessages(prev => [...prev, aiMsg])
   }, [])
 
   const handleQuickReply = useCallback((reply) => {
@@ -75,29 +89,38 @@ export function useChat() {
     setMessages(prev => [...prev, noticeMsg])
 
     // Trigger AI response about the uploaded doc
-    setTimeout(() => {
+    setTimeout(async () => {
       setIsTyping(true)
-      setTimeout(() => {
+      try {
+        const docText = encodeURIComponent(`Dummy extracted text from ${file.name} showing income of ₹85,000/month.`)
+        const res = await fetch(`http://localhost:8000/analyze-profile?doc_text=${docText}`, { method: 'POST' })
+        const response = await res.json()
+        
         setIsTyping(false)
         setMessages(prev => [
           ...prev,
           {
             id: nextId(),
             role: 'ai',
-            text: `Got it! I've received your document **${file.name}**. I'm analyzing it now...`,
+            text: `Got it! I've analyzed your document **${file.name}**.\n\n${response.analysis}`,
             cards: [
               {
                 type: 'plan',
                 title: '📊 Document Analysis',
-                content: 'Once analyzed, I\'ll identify your income, tax deductions, and suggest optimizations tailored to your financial profile.',
+                content: response.ai_verification || 'Tax profile verified.',
               },
             ],
             quickReplies: [],
             timestamp: new Date(),
           },
         ])
-      }, 1800)
-    }, 300)
+      } catch (err) {
+        setIsTyping(false)
+        setMessages(prev => [...prev, {
+          id: nextId(), role: 'ai', text: "Failed to upload document to backend.", timestamp: new Date()
+        }])
+      }
+    }, 500)
   }, [])
 
   return {
