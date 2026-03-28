@@ -11,6 +11,7 @@ export default function MainChat() {
   const [loading, setLoading] = useState(false);
   const [input, setInput] = useState("");
   const [showUploader, setShowUploader] = useState(false);
+  const [quizStep, setQuizStep] = useState(0); // 0: Age, 1: City, 2: Goal, 3: Chat Active
   
   const scrollRef = useRef(null);
 
@@ -29,10 +30,11 @@ export default function MainChat() {
             cards: msg.cards || []
           }));
           setChatHistory(formatted);
+          setQuizStep(3); // History exists, skip onboarding
       } else {
           setChatHistory([{ 
             isAI: true, 
-            text: `Namaste! I'm Niveshak, your AI Wealth Mentor. To provide bespoke advice, please tell me your Age, City, and primary Financial Goal.`,
+            text: `Namaste! I'm Niveshak, your AI Wealth Mentor. To provide bespoke advice, let's start quickly. What is your Age?`,
             cards: []
           }]);
       }
@@ -56,12 +58,27 @@ export default function MainChat() {
     setLoading(true);
 
     try {
-        const res = await api.chat(userMsg);
-        setChatHistory(prev => [...prev, { 
-          isAI: true, 
-          text: res.text,
-          cards: res.cards || []
-        }]);
+        if (quizStep === 0) {
+            await api.submitAnswer("age", parseInt(userMsg) || userMsg);
+            setChatHistory(prev => [...prev, { isAI: true, text: "Got it. And what City do you live in?" }]);
+            setQuizStep(1);
+        } else if (quizStep === 1) {
+            await api.submitAnswer("city", userMsg);
+            setChatHistory(prev => [...prev, { isAI: true, text: "Beautiful. Finally, what is your primary Financial Goal?" }]);
+            setQuizStep(2);
+        } else if (quizStep === 2) {
+            await api.submitAnswer("goal", userMsg);
+            setChatHistory(prev => [...prev, { isAI: true, text: "Perfect. Now, please click the Paperclip icon below to Paste an SMS or Upload a Bank Statement so I can analyze your 6 Wealth Dimensions." }]);
+            setQuizStep(3);
+        } else {
+            // Open Groq Chat
+            const res = await api.chat(userMsg);
+            setChatHistory(prev => [...prev, { 
+              isAI: true, 
+              text: res.text,
+              cards: res.cards || []
+            }]);
+        }
     } catch (err) {
         setChatHistory(prev => [...prev, { isAI: true, text: "Wait, I lost my train of thought. Run that by me again?" }]);
     }
@@ -80,7 +97,7 @@ export default function MainChat() {
         const data = await api.analyzeProfile(content);
         setChatHistory(prev => [...prev, { 
            isAI: true, 
-           text: "I've successfully extracted the 6 Wealth Dimensions from your document! You can view them in the Command Center.",
+           text: "I've successfully extracted the 6 Wealth Dimensions from your document! You can view the full report in the Command Center.",
            cards: [
              { type: "plan", title: "Document Verified", content: "Your evolving profile has been securely synced." }
            ]
@@ -118,13 +135,18 @@ export default function MainChat() {
         {showUploader && !loading && (
            <div className="mt-4 animate-in slide-in-from-bottom-5">
               <Phase2Upload onUpload={handleDocAnalysis} />
-              <button onClick={() => setShowUploader(false)} className="mt-2 w-full text-center text-xs text-slate-500 hover:text-ql-dark">Cancel Upload</button>
+              <button 
+                 onClick={() => setShowUploader(false)} 
+                 className="mt-2 w-full text-center text-xs text-slate-500 hover:text-ql-dark py-2"
+              >
+                 Cancel
+              </button>
            </div>
         )}
       </main>
 
       {/* INPUT AREA */}
-      <footer className="flex-shrink-0 p-3 bg-white border-t border-slate-200">
+      <footer className="flex-shrink-0 p-3 bg-white border-t border-slate-200 shadow-soft">
           <form 
             onSubmit={(e) => { e.preventDefault(); handleSend(); }}
             className="flex items-center gap-2"
@@ -136,7 +158,7 @@ export default function MainChat() {
                type="text" 
                value={input}
                onChange={(e) => setInput(e.target.value)}
-               placeholder="Message Niveshak..."
+               placeholder={quizStep < 3 ? "Type your answer..." : "Message Niveshak..."}
                className="flex-grow bg-[#F0F2F5] px-4 py-3 rounded-full text-ql-dark placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-ql-primary/50"
                disabled={loading}
              />

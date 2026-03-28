@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
 import { UploadCloud, FileText, CheckCircle } from 'lucide-react';
+import { api } from '../utils/api';
 
 export default function Phase2Upload({ onUpload }) {
   const [isDragging, setIsDragging] = useState(false);
@@ -32,8 +33,25 @@ export default function Phase2Upload({ onUpload }) {
     }
   };
 
-  const handleFile = (file) => {
+  const handleFile = async (file) => {
     setFileStatus("Reading file...");
+    
+    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+       try {
+          const res = await api.extractPdf(file);
+          if (res.text) {
+             setFileStatus("Analyzed");
+             onUpload(res.text, false);
+          } else {
+             setFileStatus("Error: " + (res.message || "Failed to parse PDF"));
+          }
+       } catch (err) {
+          const errMsg = err.response?.data?.detail || "Unreadable PDF";
+          setFileStatus("Error: " + errMsg);
+       }
+       return;
+    }
+    
     const reader = new FileReader();
     reader.onload = async (e) => {
       const text = e.target.result;
@@ -74,11 +92,11 @@ export default function Phase2Upload({ onUpload }) {
             <>
               <UploadCloud size={32} className="mx-auto text-slate-400 mb-3" />
               <p className="text-sm text-slate-600 mb-2">Drag & drop your statement</p>
-              <p className="text-xs text-slate-400 mb-4">Supports .txt, .csv</p>
+              <p className="text-xs text-slate-400 mb-4">Supports .pdf, .txt, .csv</p>
               
               <label className="bg-ql-dark text-white text-sm px-4 py-2 rounded-xl cursor-pointer hover:bg-black transition-colors">
                 Browse Files
-                <input type="file" className="hidden" accept=".txt,.csv" onChange={handleChange} />
+                <input type="file" className="hidden" accept=".pdf,.txt,.csv" onChange={handleChange} />
               </label>
             </>
           )}

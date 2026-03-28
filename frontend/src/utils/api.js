@@ -61,6 +61,15 @@ export const api = {
     return response.data;
   },
 
+  extractPdf: async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await axiosInstance.post(`/upload-pdf`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    return response.data;
+  },
+
   healthCheck: async () => {
     try {
       const response = await axiosInstance.get(`/health-check`);

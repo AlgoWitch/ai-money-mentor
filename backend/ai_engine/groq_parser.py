@@ -101,3 +101,48 @@ def generate_fire_roadmap(age: int, income: float, expenses: float, savings: flo
         "years_to_fire": years,
         "target_age": age + int(years)
     }
+
+def chat_with_groq(user_message: str, user_profile: dict, history: list):
+    """
+    Drives the Niveshak Chat experience.
+    """
+    clean_profile = dict(user_profile.get('profile', {}))
+    clean_profile.pop('chat_history', None)
+    
+    system_prompt = f"""You are Niveshak, an elite AI Private Wealth Mentor for Indians.
+    Your tone is 'Quiet Luxury', professional yet approachable, occasionally using Hinglish natively (e.g., 'Arre bhai', 'Sahi baat hai').
+    You must be concise (WhatsApp style) and highly accurate.
+    
+    CRITICAL USER DATA (Source of Truth):
+    {json.dumps(clean_profile, indent=2)}
+    
+    Rules:
+    1. ALWAYS use the above data to answer questions about the user's age, city, goal, health score, or 6 Wealth Dimensions.
+    2. If the user asks about their info and it's missing, tell them you don't have it yet.
+    3. If they just submitted their info, acknowledge it beautifully and prompt them to upload a bank statement or paste an SMS so you can analyze their wealth.
+    """
+    
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    print("\n--- SYSTEM PROMPT ---\n", system_prompt, "\n---------------------\n")
+    
+    # Add recent history (last 5 msgs)
+    recent = history[-5:] if len(history) > 5 else history
+    for msg in recent:
+        if not isinstance(msg, dict): continue
+        role = "assistant" if msg.get("role") == "ai" else "user"
+        messages.append({"role": role, "content": msg.get("message", "")})
+        
+    messages.append({"role": "user", "content": user_message})
+    
+    try:
+        completion = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=messages,
+            temperature=0.6,
+            max_tokens=250
+        )
+        return completion.choices[0].message.content
+    except Exception as e:
+        print(f"Groq Chat Error: {e}")
+        return "I am currently syncing with the markets. Can you repeat that?"

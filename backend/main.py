@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, File, UploadFile
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import json
@@ -9,8 +9,7 @@ from backend.utils.auth import verify_password, get_password_hash, create_access
 from backend.utils.db_handler import save_user_profile, get_user_profile, update_goal, update_user_fields, db
 from backend.ai_engine.parser import parse_indian_sms
 from backend.ai_engine.nudge_logic import generate_smart_nudge
-from backend.ai_engine.groq_parser import extract_6_dimensions, generate_fire_roadmap
-from backend.ai_engine.analyzer import FinancialConsultant
+from backend.ai_engine.groq_parser import extract_6_dimensions, generate_fire_roadmap, chat_with_groq
 from backend.ai_engine.discovery import generate_contextual_question
 from backend.api.market_data import get_nifty50_sentiment
 from backend.utils.privacy import mask_sensitive_info
@@ -109,6 +108,31 @@ async def process_sms(req: SmsRequest, user_id: str = Depends(get_current_user))
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+import PyPDF2
+import io
+
+@app.post("/upload-pdf")
+async def upload_pdf(file: UploadFile = File(...), user_id: str = Depends(get_current_user)):
+    try:
+        if not file.filename.endswith('.pdf'):
+            raise HTTPException(status_code=400, detail="Only PDF files are supported.")
+        
+        content = await file.read()
+        pdf_reader = PyPDF2.PdfReader(io.BytesIO(content))
+        extracted_text = ""
+        
+        for page in pdf_reader.pages:
+            if page.extract_text():
+                extracted_text += page.extract_text() + "\n"
+                
+        if not extracted_text.strip():
+            raise HTTPException(status_code=400, detail="PDF is unreadable or empty. Please ensure it is a text-based bank statement.")
+            
+        return {"text": extracted_text}
+    except Exception as e:
+        print(f"PDF Parse Error: {e}")
+        return {"status": "error", "message": "Failed to parse PDF document."}
+
 class ProfileRequest(BaseModel):
     doc_text: str
 
@@ -203,55 +227,55 @@ class ChatRequest(BaseModel):
 async def _add_chat_message(user_id: str, role: str, message: str, cards: list = None):
     user = await get_user_profile(user_id)
     history = user.get("chat_history", [])
+    
+    # Catch any accidentally nested history
+    if "chat_history" in user.get("profile", {}):
+        history = user["profile"]["chat_history"]
+        del user["profile"]["chat_history"]
+        await save_user_profile(user_id, {"profile": user["profile"]})
+        
     history.append({
         "role": role,
         "message": message,
         "cards": cards or [],
         "timestamp": datetime.utcnow().isoformat()
     })
-    await update_user_fields(user_id, {"chat_history": history})
+    await save_user_profile(user_id, {"chat_history": history})
 
 @app.post("/chat")
 async def chat(req: ChatRequest, user_id: str = Depends(get_current_user)):
+    user = await get_user_profile(user_id)
+    history = user.get("chat_history", [])
+    
     # Save user message
     await _add_chat_message(user_id, "user", req.text)
 
     text = req.text.lower()
     cards = []
-    response_text = "I'm your AI Money Mentor. What's on your mind?"
     
-    if "save" in text or "invest" in text or "goal" in text:
-        metrics = FinancialConsultant.calculate_health_metrics()
-        advice = FinancialConsultant.get_expert_advice(metrics)
-        response_text = "Here is a quick look at your financial health:"
-        cards.append({
-            "type": "problem" if metrics["status"] == "Attention Needed" else "plan",
-            "title": "Health Check",
-            "content": f"**Savings Rate:** {metrics['savings_rate']}%\n**Emergency Fund:** {metrics['emergency_fund_progress']}%\n\n{advice}"
-        })
-    elif "rs" in text or "debited" in text or "credited" in text or "a/c" in text:
+    # Let Groq LLM drive all conversational responses
+    response_text = chat_with_groq(req.text, user, history)
+    
+    # If it looks exactly like an SMS, we extract structured transaction cards to supplement the AI
+    if "rs" in text or "debited" in text or "credited" in text or "a/c" in text:
         try:
             safe_sms = mask_sensitive_info(req.text)
             raw_data = parse_indian_sms(safe_sms)
             data = json.loads(raw_data) if isinstance(raw_data, str) else raw_data
-            nudge = generate_smart_nudge(data)
             
-            response_text = nudge
             amount = data.get("amount") or data.get("Amount")
             merchant = data.get("merchant_name") or data.get("MerchantName", "Unknown")
             txn_type = str(data.get("transaction_type") or data.get("TransactionType", "Unknown")).lower()
             
-            if txn_type == "debit":
+            if txn_type == "debit" and amount:
                 cards.append({
                     "type": "action",
-                    "title": "Expense Tracking",
-                    "content": f"Recorded an expense of ₹{amount} at {merchant}."
+                    "title": "Expense Tracked",
+                    "content": f"Logged an expense of ₹{amount} at {merchant}."
                 })
         except Exception as e:
-            response_text = "I couldn't parse that transaction properly."
-    else:
-        response_text = generate_contextual_question()
-    
+            pass # Groq response will suffice
+            
     # Save AI response
     await _add_chat_message(user_id, "ai", response_text, cards)
     
