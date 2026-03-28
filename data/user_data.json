@@ -1,13 +1,29 @@
 {
     "profile": {
-        "monthly_income": 60000,
+        "monthly_income": 1876.02,
         "risk_appetite": "Moderate",
         "last_updated": "2024-03-27",
-        "primary_bank": "Unknown",
+        "primary_bank": "Relationship Checking - Account",
         "recurring_expenses_total": 0,
-        "last_audited": "2026-03-27"
+        "last_audited": "2026-03-28",
+        "age": "my age is 30",
+        "city_type": "lucknow",
+        "goal": "i have to purchse my audi car this year"
     },
-    "goals": {},
+    "goals": {
+        "travel": {
+            "target": 50000.0,
+            "saved": 0.0
+        },
+        "bike": {
+            "target": 50000.0,
+            "saved": 0.0
+        },
+        "i have to purchse my audi car this year": {
+            "target": 50000.0,
+            "saved": 0.0
+        }
+    },
     "financial_health": {
         "savings_rate": 0.0,
         "debt_ratio": 0.0,
