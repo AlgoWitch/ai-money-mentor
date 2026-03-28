@@ -24,47 +24,47 @@ export default function FirePlanner() {
 
     try {
       if (step === 0) {
-        const val = parseInt(userMsg);
-        setProfile(prev => ({ ...prev, age: val || 30 }));
-        await api.submitAnswer("age", val || 30);
-        setChatLog(prev => [...prev, { isAI: true, text: `Excellent. And what is your total monthly income (in ₹)?` }]);
+        const numVal = parseInt(userMsg.replace(/[^0-9]/g, ''));
+        if (!numVal || numVal < 18 || numVal > 70) {
+           setChatLog(prev => [...prev, { isAI: true, text: "Bhai, Age should be between 18 and 70 to plan FIRE realistically. Try again." }]);
+           setLoading(false);
+           return;
+        }
+        await api.submitAnswer("age", userMsg);
+        setChatLog(prev => [...prev, { isAI: true, text: `Excellent. And what is your total monthly income (in ₹)? You can use 'Lakhs', 'k', or 'Cr'.` }]);
         setStep(1);
       } else if (step === 1) {
-        const val = parseFloat(userMsg.replace(/[^0-9.]/g, ''));
-        setProfile(prev => ({ ...prev, monthly_income: val || 100000 }));
-        await api.submitAnswer("monthly_income", val || 100000);
+        await api.submitAnswer("monthly_income", userMsg);
         setChatLog(prev => [...prev, { isAI: true, text: `Got it. Roughly how much of that goes toward monthly expenses?` }]);
         setStep(2);
       } else if (step === 2) {
-        const val = parseFloat(userMsg.replace(/[^0-9.]/g, ''));
-        setProfile(prev => ({ ...prev, monthly_expenses: val || 50000 }));
-        await api.submitAnswer("monthly_expenses", val || 50000);
+        await api.submitAnswer("monthly_expenses", userMsg);
         setChatLog(prev => [...prev, { isAI: true, text: `Okay. And what are your total current savings or investments right now?` }]);
         setStep(3);
       } else if (step === 3) {
-        const val = parseFloat(userMsg.replace(/[^0-9.]/g, ''));
-        setProfile(prev => ({ ...prev, current_savings: val || 200000 }));
-        await api.submitAnswer("current_savings", val || 200000);
+        await api.submitAnswer("current_savings", userMsg);
         setChatLog(prev => [...prev, { isAI: true, text: `Almost done. What is your 'FIRE' target number? (How much money do you want to retire with?)` }]);
         setStep(4);
       } else if (step === 4) {
-        setProfile(prev => ({ ...prev, fire_goal: userMsg }));
         await api.submitAnswer("fire_goal", userMsg);
-        await api.setGoal("Retirement FIRE", parseFloat(userMsg.replace(/[^0-9.]/g, '')) || 50000000); 
-        
         setChatLog(prev => [...prev, { isAI: true, text: `Crunching numbers...` }]);
         
         const firePlanRes = await api.submitAnswer("trigger_fire_plan", "true"); 
         const rd = firePlanRes.roadmap || {};
         
-        setChatLog(prev => [...prev, { 
-            isAI: true, 
-            text: rd.message || `Roadmap Generated! If you invest just ₹${Math.max(10000, ((profile.monthly_income || 100000)*0.3)).toFixed(0)} every month in an index fund, you will hit your FIRE goal in 15 years.`,
-            cards: [
-              { type: "plan", title: "FIRE Blueprint", content: `**Target Age:** ${rd.target_age || 'N/A'}\n**Required SIP:** ₹${rd.sip_amount || 0}/mo` }
-            ]
-        }]);
-        setStep(5);
+        if (rd.status === "Error" || rd.status === "Critical" || rd.status === "Impossible") {
+            setChatLog(prev => [...prev, { isAI: true, text: rd.message }]);
+            setStep(6); // Error state
+        } else {
+            setChatLog(prev => [...prev, { 
+                isAI: true, 
+                text: rd.message || `Roadmap Generated!`,
+                cards: [
+                  { type: "plan", title: "FIRE Blueprint", content: `**Target Age:** ${rd.target_age || 'N/A'}\n**Required SIP:** ₹${rd.sip_amount || 0}/mo` }
+                ]
+            }]);
+            setStep(5);
+        }
       }
     } catch (err) {
       setChatLog(prev => [...prev, { isAI: true, text: `Sorry, arithmetic error on my end. Say that again?` }]);
@@ -106,6 +106,16 @@ export default function FirePlanner() {
       {step === 5 && (
         <div className="text-center p-4 bg-green-50 rounded-xl text-green-700 font-bold border border-green-200">
            FIRE Roadmap Active. Check your Command Center!
+        </div>
+      )}
+      {step === 6 && (
+        <div className="flex justify-center mt-2">
+           <button 
+             onClick={() => window.location.reload()} 
+             className="bg-ql-dark text-white text-sm px-6 py-3 font-bold rounded-xl hover:bg-black transition-colors shadow-soft"
+           >
+             Recalculate FIRE Plan
+           </button>
         </div>
       )}
     </div>

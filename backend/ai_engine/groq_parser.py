@@ -1,5 +1,7 @@
 import os
 import json
+import re
+from decimal import Decimal
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -66,37 +68,91 @@ def extract_6_dimensions(doc_text: str):
             "retirement": {"status": "Error", "details": "AI Parsing Failed"}
         }
 
-def generate_fire_roadmap(age: int, income: float, expenses: float, savings: float, target: float):
+def parse_indian_numerics(val) -> float:
+    if isinstance(val, (int, float)):
+        return float(val)
+    if not isinstance(val, str):
+        return 0.0
+        
+    v = val.lower().strip()
+    match = re.search(r'([\d.,]+)', v)
+    if not match:
+        return 0.0
+        
+    num_str = match.group(1).replace(',', '')
+    try:
+        base_num = float(num_str)
+    except ValueError:
+        return 0.0
+        
+    if 'cr' in v or 'crore' in v:
+        return base_num * 10_000_000
+    elif 'lakh' in v or 'l ' in v or 'lac' in v:
+        return base_num * 100_000
+    elif 'k ' in v or v.endswith('k') or 'thousand' in v:
+        return base_num * 1000
+    elif 'm ' in v or 'million' in v:
+        return base_num * 1_000_000
+        
+    return base_num
+
+def generate_fire_roadmap(age, income, expenses, savings, target):
     """
-    Math-driven SIP Roadmap calculation.
+    Math-driven SIP Roadmap calculation with Decimal precision and String ingestion.
     """
-    monthly_investment_capacity = income - expenses
-    if monthly_investment_capacity <= 0:
+    age = int(parse_indian_numerics(age)) if age else 30
+    income = parse_indian_numerics(income)
+    expenses = parse_indian_numerics(expenses)
+    savings = parse_indian_numerics(savings)
+    target = parse_indian_numerics(target)
+
+    if income <= 0:
+        return {"status": "Error", "message": "Bhai, pehle income toh source clearly batao!"}
+        
+    if expenses >= income:
         return {
             "status": "Critical",
-            "message": "Expenses exceed income. Focus on debt reduction and budgeting first.",
+            "message": "Expenses exceed income. Bhai, thoda kharcha kam karo aur budgeting try karo before planning FIRE.",
             "sip_amount": 0,
-            "years_to_fire": 0
+            "years_to_fire": 0,
+            "target_age": age
         }
     
-    # Simple future value calculation assuming 12% annual return (1% monthly)
-    # Target = Savings * (1.12)^n + SIP * (((1.12)^n - 1) / 0.12)
-    # We will approximate the years to hit the target.
+    monthly_investment_capacity = income - expenses
     
-    rate_monthly = 0.12 / 12
+    if target <= savings:
+        return {
+            "status": "Done",
+            "message": "Arre wah! Your current savings already exceed your FIRE target. You are financially independent!",
+            "sip_amount": 0,
+            "years_to_fire": 0,
+            "target_age": age
+        }
+    
+    rate_monthly = Decimal("0.12") / Decimal("12")
     months = 0
-    current = savings
-    sip_amount = monthly_investment_capacity * 0.7  # Recommend investing 70% of surplus
+    current = Decimal(str(savings))
+    sip_amount = Decimal(str(monthly_investment_capacity * 0.7))
+    target_dec = Decimal(str(target))
     
-    while current < target and months < 480: # Max 40 years
-        current = current * (1 + rate_monthly) + sip_amount
+    while current < target_dec and months < 600: # Max 50 years (600 months)
+        current = current * (Decimal("1") + rate_monthly) + sip_amount
         months += 1
+        
+    if months >= 600:
+        return {
+            "status": "Impossible",
+            "message": f"Bhai, target thoda realistic rakhein? With a ₹{int(sip_amount)} monthly SIP, reaching ₹{int(target)} will take over 50 years. Consider increasing your primary income or lowering the FIRE goal.",
+            "sip_amount": int(sip_amount),
+            "years_to_fire": 50,
+            "target_age": age + 50
+        }
         
     years = round(months / 12, 1)
     
     return {
         "status": "Achievable",
-        "message": f"If you invest ₹{int(sip_amount)} per month in a diversified equity portfolio (assuming 12% returns), you can reach your FIRE goal of ₹{int(target)} in about {years} years (by age {age + int(years)}).",
+        "message": f"If you aggressively invest ₹{int(sip_amount)} per month in a diversified equity portfolio (assuming 12% returns), you can realistically reach your FIRE goal of ₹{int(target)} in about {years} years (by age {age + int(years)}).",
         "sip_amount": int(sip_amount),
         "years_to_fire": years,
         "target_age": age + int(years)

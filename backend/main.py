@@ -204,7 +204,7 @@ async def submit_answer(answer: AnswerRequest, user_id: str = Depends(get_curren
             p.get("monthly_income", 100000),
             p.get("monthly_expenses", 50000),
             p.get("current_savings", 200000),
-            float(p.get("fire_goal", 50000000))
+            p.get("fire_goal", 50000000)
         )
         return {"status": "Roadmap Generated", "roadmap": roadmap}
         

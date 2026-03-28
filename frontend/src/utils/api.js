@@ -12,6 +12,18 @@ axiosInstance.interceptors.request.use((config) => {
   return config;
 });
 
+// Auto-Logout on Expired Token
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && error.response.status === 401) {
+      localStorage.removeItem('niveshak_token');
+      window.location.reload(); // Force app to re-mount AuthModal
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const api = {
   login: async (formDataParams) => {
     // OAuth2 password flow requires form data (x-www-form-urlencoded)

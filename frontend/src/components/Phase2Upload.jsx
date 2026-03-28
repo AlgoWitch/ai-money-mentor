@@ -88,10 +88,21 @@ export default function Phase2Upload({ onUpload }) {
                 <CheckCircle size={32} />
                 <span className="text-sm font-medium">Document Verified</span>
              </div>
+          ) : fileStatus === "Reading file..." ? (
+             <div className="flex flex-col items-center gap-4 text-ql-dark py-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-ql-dark"></div>
+                <span className="text-sm font-bold">Uploading & Processing PDF...</span>
+             </div>
           ) : (
             <>
-              <UploadCloud size={32} className="mx-auto text-slate-400 mb-3" />
-              <p className="text-sm text-slate-600 mb-2">Drag & drop your statement</p>
+              <UploadCloud size={32} className={`mx-auto mb-3 ${fileStatus?.startsWith("Error") ? 'text-red-400' : 'text-slate-400'}`} />
+              
+              {fileStatus?.startsWith("Error") ? (
+                  <p className="text-sm text-red-500 font-bold mb-2">{fileStatus}</p>
+              ) : (
+                  <p className="text-sm text-slate-600 mb-2">Drag & drop your statement</p>
+              )}
+              
               <p className="text-xs text-slate-400 mb-4">Supports .pdf, .txt, .csv</p>
               
               <label className="bg-ql-dark text-white text-sm px-4 py-2 rounded-xl cursor-pointer hover:bg-black transition-colors">
