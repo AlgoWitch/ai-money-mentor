@@ -1,18 +1,16 @@
-from backend.utils.db_handler import get_data
+from backend.database.mongo import get_user
 
 def identify_profile_gaps():
-    data = get_data()
-    profile = data.get("profile", {})
-    goals = data.get("goals", {})
+    user = get_user("demo_user") or {}
     
     gaps = []
     
     # Critical Gaps
-    if not profile.get("monthly_income"): gaps.append("income")
-    if not profile.get("age"): gaps.append("age")
-    if not profile.get("city_type"): gaps.append("location") # Tier 1/2/3 affects inflation
-    if not profile.get("has_insurance"): gaps.append("insurance")
-    if not goals: gaps.append("primary_goal")
+    if not (user.get("income") or user.get("monthly_income")): gaps.append("income")
+    if not user.get("age"): gaps.append("age")
+    if not user.get("city_type"): gaps.append("location") # Tier 1/2/3 affects inflation
+    if not user.get("has_insurance"): gaps.append("insurance")
+    if not user.get("goal"): gaps.append("primary_goal")
     
     return gaps
 

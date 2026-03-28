@@ -51,5 +51,25 @@ export const api = {
       console.error('API Error (healthCheck):', error);
       throw error;
     }
+  },
+
+  fetchChatHistory: async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/chat-history`);
+      return response.data.history;
+    } catch (error) {
+      console.error('API Error (fetchChatHistory):', error);
+      throw error;
+    }
+  },
+
+  getMe: async () => {
+    try {
+      const response = await axios.get(`${API_BASE}/me`);
+      return response.data;
+    } catch (error) {
+      console.error('API Error (getMe):', error);
+      throw error;
+    }
   }
 };

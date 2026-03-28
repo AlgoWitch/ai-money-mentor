@@ -7,7 +7,13 @@ from backend.ai_engine.parser import parse_indian_sms
 from backend.ai_engine.nudge_logic import generate_smart_nudge
 from backend.ai_engine.document_parser import extract_financial_profile
 from backend.ai_engine.analyzer import FinancialConsultant
-from backend.utils.db_handler import update_goal, ensure_db_exists, update_user_profile
+from backend.database.mongo import (
+    create_or_update_user, 
+    get_user, 
+    add_chat_message, 
+    update_user_fields,
+    get_chat_history
+)
 from backend.utils.privacy import mask_sensitive_info
 from backend.ai_engine.discovery import generate_contextual_question
 
@@ -17,14 +23,18 @@ app = FastAPI(title="Niveshak AI - National Level Agent")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize DB on startup
-ensure_db_exists()
+# Mongo database initializes on import via backend.database.mongo
 
 class GoalRequest(BaseModel):
     name: str
@@ -36,7 +46,7 @@ def home():
 
 @app.post("/set-goal")
 async def set_goal(goal: GoalRequest):
-    update_goal(goal.name, goal.target)
+    update_user_fields("demo_user", {"goal": goal.name, "target_amount": goal.target})
     return {"message": f"Goal '{goal.name}' set for ₹{goal.target}!"}
 
 @app.post("/process-sms")
@@ -87,7 +97,7 @@ async def analyze_profile(doc_text: str):
         }
         
         # 4. Update the Unified Data Model (Persistence)
-        update_user_profile(profile_update)
+        update_user_fields("demo_user", profile_update)
         
         # 5. Get refreshed Health Score
         metrics = FinancialConsultant.calculate_health_metrics()
@@ -124,13 +134,10 @@ class AnswerRequest(BaseModel):
 
 @app.post("/submit-answer")
 async def submit_answer(answer: AnswerRequest):
-    from backend.utils.db_handler import update_user_profile
-    
     # Update the profile with the user's answer
-    update_user_profile({answer.field: answer.value})
+    update_user_fields("demo_user", {answer.field: answer.value})
     
     # Immediately check if there is a NEW question now
-    from backend.ai_engine.discovery import generate_contextual_question
     next_q = generate_contextual_question()
     
     return {
@@ -139,11 +146,24 @@ async def submit_answer(answer: AnswerRequest):
         "next_question": next_q
     }
 
+@app.get("/chat-history")
+async def chat_history():
+    history = get_chat_history("demo_user")
+    return {"history": history}
+
+@app.get("/me")
+async def get_me():
+    user = get_user("demo_user")
+    return user
+
 class ChatRequest(BaseModel):
     text: str
 
 @app.post("/chat")
 async def chat(req: ChatRequest):
+    # Save user message
+    add_chat_message("demo_user", "user", req.text)
+
     text = req.text.lower()
     cards = []
     response_text = "I'm your AI Money Mentor. What's on your mind?"
@@ -182,6 +202,9 @@ async def chat(req: ChatRequest):
     else:
         # Default response
         response_text = generate_contextual_question()
+    
+    # Save AI response
+    add_chat_message("demo_user", "ai", response_text, cards)
     
     return {
         "text": response_text,

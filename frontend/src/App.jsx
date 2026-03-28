@@ -6,6 +6,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 import Phase2Upload from './components/Phase2Upload';
 import Phase3Insights from './components/Phase3Insights';
 import { api } from './utils/api';
+import axios from 'axios';
 
 function App() {
   const [phase, setPhase] = useState(1); // 1: Onboarding, 2: Document Input, 3: Reveal
@@ -19,6 +20,44 @@ function App() {
   const [insightData, setInsightData] = useState(null);
 
   const scrollRef = useRef(null);
+
+  // Persistence: Fetch history and profile on mount
+  useEffect(() => {
+    const initApp = async () => {
+      setLoading(true);
+      try {
+        const user = await api.getMe();
+        if (user) {
+          setProfile({
+            age: user.age || "",
+            city: user.city_type || "",
+            goal: user.goal || ""
+          });
+
+          // If they've finished onboarding, skip to Phase 2
+          if (user.goal) {
+            setPhase(2);
+            setQuizStep(3);
+          }
+        }
+
+        const history = await api.fetchChatHistory();
+        if (history && history.length > 0) {
+          const formatted = history.map(msg => ({
+            isAI: msg.role === 'ai',
+            text: msg.message,
+            cards: msg.cards || []
+          }));
+          setChatHistory(formatted);
+        }
+      } catch (error) {
+        console.error("Initialization failed:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    initApp();
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -37,9 +76,18 @@ function App() {
 
     if (phase === 1) {
       await handleQuizFlow(userMsg);
-    } else if (phase === 2) {
-      // Paste SMS text handling
-      await handleDocAnalysis(userMsg, true);
+    } else {
+      // Standard Chat / SMS handling
+      try {
+        const res = await axios.post(`http://127.0.0.1:8000/chat`, { text: userMsg });
+        setChatHistory(prev => [...prev, { 
+          isAI: true, 
+          text: res.data.text,
+          cards: res.data.cards 
+        }]);
+      } catch (err) {
+        setChatHistory(prev => [...prev, { isAI: true, text: "Backend is taking logic break. Try again?" }]);
+      }
     }
     setLoading(false);
   };
@@ -123,7 +171,7 @@ function App() {
       {/* CHAT AREA */}
       <main ref={scrollRef} className="flex-grow overflow-y-auto px-4 py-6 chat-scroll relative flex flex-col gap-2">
         {chatHistory.map((msg, idx) => (
-          <MessageBubble key={idx} message={msg.text} isAI={msg.isAI} />
+          <MessageBubble key={idx} message={msg.text} isAI={msg.isAI} cards={msg.cards} />
         ))}
         
         {loading && <LoadingSpinner />}

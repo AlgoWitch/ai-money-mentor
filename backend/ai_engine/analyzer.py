@@ -1,14 +1,11 @@
-from backend.utils.db_handler import get_data
+from backend.database.mongo import get_user
 
 class FinancialConsultant:
     @staticmethod
     def calculate_health_metrics():
-        data = get_data()
-        profile = data.get("profile", {})
-        income = profile.get("monthly_income", 0)
-        
-        # Calculate total saved from history
-        total_saved = sum(item['amount'] for item in data.get("savings_history", []))
+        user = get_user("demo_user") or {}
+        income = user.get("income") or user.get("monthly_income") or 0
+        total_saved = user.get("savings") or 0
         
         # Expert Metric 1: Savings Rate
         savings_rate = (total_saved / income * 100) if income > 0 else 0
@@ -24,10 +21,10 @@ class FinancialConsultant:
     
     @staticmethod
     def calculate_fragility_score():
-        data = get_data()
-        income = data.get("profile", {}).get("monthly_income", 0)
-        expenses = data.get("profile", {}).get("recurring_expenses_total", 0)
-        savings = sum(item['amount'] for item in data.get("savings_history", []))
+        user = get_user("demo_user") or {}
+        income = user.get("income") or user.get("monthly_income") or 0
+        expenses = user.get("expenses") or user.get("recurring_expenses_total") or 0
+        savings = user.get("savings") or 0
         
         if expenses == 0: return 0
         

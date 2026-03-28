@@ -5,10 +5,10 @@ async def initiate_save(amount: float, goal_name: str):
     transaction_id = f"TXN-{int(datetime.datetime.now().timestamp())}"
     
     # Update local DB
-    from backend.utils.db_handler import get_data, update_goal
-    data = get_data()
-    current_saved = data["goals"].get(goal_name, {}).get("saved", 0)
-    update_goal(goal_name, data["goals"][goal_name]["target"], current_saved + amount)
+    from backend.database.mongo import get_user, update_user_fields
+    user = get_user("demo_user") or {}
+    current_saved = user.get("savings", 0)
+    update_user_fields("demo_user", {"savings": current_saved + amount})
     
     return {
         "status": "Mandate_Triggered",

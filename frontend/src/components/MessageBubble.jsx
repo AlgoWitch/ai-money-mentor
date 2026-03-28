@@ -1,8 +1,9 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { User, Sparkles } from 'lucide-react';
+import InsightBlock from './InsightCard';
 
-export default function MessageBubble({ message, isAI }) {
+export default function MessageBubble({ message, isAI, cards }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -28,6 +29,15 @@ export default function MessageBubble({ message, isAI }) {
         }`}
       >
         <div className="whitespace-pre-wrap">{message}</div>
+        
+        {/* Insight blocks — premium report style */}
+        {cards?.length > 0 && (
+          <div className="border border-slate-100 rounded-xl bg-white shadow-premium px-5 py-3 mt-3 -mx-1 mb-1">
+            {cards.map((card, idx) => (
+              <InsightBlock key={idx} card={card} />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* User Avatar (Optional, currently hidden for cleaner look but logic is here) */}
