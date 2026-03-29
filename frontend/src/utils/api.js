@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_BASE = 'http://127.0.0.1:8000';
+const API_BASE = 'https://ai-money-mentor-1-o1q6.onrender.com';
 
 // Axios Interceptor for injecting JWT
 const axiosInstance = axios.create({ baseURL: API_BASE });
