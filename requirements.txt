@@ -4,3 +4,10 @@ python-dotenv
 openai
 pydantic
 requests
+motor
+pyjwt
+passlib[bcrypt]
+python-multipart
+PyPDF2
+groq
+certifi
