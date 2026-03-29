@@ -1,7 +1,8 @@
-from backend.database.mongo import get_user
+# discovery.py — generates contextual onboarding questions, no DB dependency
 
 def identify_profile_gaps():
-    user = get_user("demo_user") or {}
+    # Called after submit-answer stores data; gaps are computed from passed-in user dict via generate_contextual_question
+    user = {}
     
     gaps = []
     

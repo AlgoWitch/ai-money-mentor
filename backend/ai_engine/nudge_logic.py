@@ -1,8 +1,7 @@
-from backend.database.mongo import get_user
+# nudge_logic.py — pure transaction-data-based nudges, no DB dependency needed
 
-def generate_smart_nudge(transaction_data):
-    user = get_user("demo_user") or {}
-    income = user.get("income", 0)
+def generate_smart_nudge(transaction_data, user_income: float = 0):
+    income = user_income
     
     # National Level Feature: Proactive Warning
     if income > 0 and transaction_data.get("amount", 0) > (income * 0.1):
