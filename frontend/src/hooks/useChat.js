@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
-import { getMockResponse, STAGES } from '../data/mockData'
+import { api } from '../utils/api'
 
 const WELCOME_MESSAGE = {
   id: 'welcome',
@@ -13,18 +13,13 @@ const WELCOME_MESSAGE = {
 export function useChat() {
   const [messages, setMessages] = useState([WELCOME_MESSAGE])
   const [isTyping, setIsTyping] = useState(false)
-  const [stageIndex, setStageIndex] = useState(0)
-  const [uploadedFile, setUploadedFile] = useState(null)
   const messageIdCounter = useRef(1)
-  const userMessageCount = useRef(0)
-  const stageRef = useRef(0)
 
   const nextId = () => `msg-${messageIdCounter.current++}`
 
   const sendMessage = useCallback(async (text) => {
     if (!text.trim()) return
 
-    // Add user message
     const userMsg = {
       id: nextId(),
       role: 'user',
@@ -34,42 +29,29 @@ export function useChat() {
     setMessages(prev => [...prev, userMsg])
     setIsTyping(true)
 
-    // Advance stage every 3 user messages
-    userMessageCount.current += 1
-    if (userMessageCount.current % 3 === 0 && stageRef.current < STAGES.length - 1) {
-      stageRef.current += 1
-      setStageIndex(stageRef.current)
-    }
-
-    // Real API Call to Backend
     try {
-      const res = await fetch('http://localhost:8000/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text })
-      })
-      const response = await res.json()
+      // Uses api.js (axios + auth token injected automatically)
+      const response = await api.chat(text)
 
       const aiMsg = {
         id: nextId(),
         role: 'ai',
-        text: response.text || "I processed that.",
+        text: response.text || 'I processed that.',
         cards: response.cards || [],
         quickReplies: [],
         timestamp: new Date(),
       }
-
-      setIsTyping(false)
       setMessages(prev => [...prev, aiMsg])
     } catch (err) {
-      console.error(err)
-      setIsTyping(false)
+      console.error('Chat error:', err)
       setMessages(prev => [...prev, {
         id: nextId(),
         role: 'ai',
-        text: "I'm having trouble connecting to my backend right now.",
+        text: "I'm having trouble connecting right now. Please try again.",
         timestamp: new Date()
       }])
+    } finally {
+      setIsTyping(false)
     }
   }, [])
 
@@ -77,8 +59,7 @@ export function useChat() {
     sendMessage(reply)
   }, [sendMessage])
 
-  const handleFileUpload = useCallback((file) => {
-    setUploadedFile(file)
+  const handleFileUpload = useCallback(async (file) => {
     const noticeMsg = {
       id: nextId(),
       role: 'user',
@@ -87,47 +68,40 @@ export function useChat() {
       timestamp: new Date(),
     }
     setMessages(prev => [...prev, noticeMsg])
+    setIsTyping(true)
 
-    // Trigger AI response about the uploaded doc
-    setTimeout(async () => {
-      setIsTyping(true)
-      try {
-        const docText = encodeURIComponent(`Dummy extracted text from ${file.name} showing income of ₹85,000/month.`)
-        const res = await fetch(`http://localhost:8000/analyze-profile?doc_text=${docText}`, { method: 'POST' })
-        const response = await res.json()
-        
-        setIsTyping(false)
-        setMessages(prev => [
-          ...prev,
-          {
-            id: nextId(),
-            role: 'ai',
-            text: `Got it! I've analyzed your document **${file.name}**.\n\n${response.analysis}`,
-            cards: [
-              {
-                type: 'plan',
-                title: '📊 Document Analysis',
-                content: response.ai_verification || 'Tax profile verified.',
-              },
-            ],
-            quickReplies: [],
-            timestamp: new Date(),
-          },
-        ])
-      } catch (err) {
-        setIsTyping(false)
+    try {
+      // Upload PDF via api.js (has auth token)
+      const res = await api.extractPdf(file)
+      if (res.text) {
+        const analysisRes = await api.analyzeProfile(res.text)
         setMessages(prev => [...prev, {
-          id: nextId(), role: 'ai', text: "Failed to upload document to backend.", timestamp: new Date()
+          id: nextId(),
+          role: 'ai',
+          text: `Got it! I've analyzed your document **${file.name}**.\n\n${analysisRes.analysis || 'Profile updated.'}`,
+          cards: [{ type: 'plan', title: 'Document Verified', content: analysisRes.ai_verification || 'Wealth profile synced.' }],
+          quickReplies: [],
+          timestamp: new Date(),
         }])
+      } else {
+        throw new Error(res.message || 'Could not extract text')
       }
-    }, 500)
+    } catch (err) {
+      console.error('File upload error:', err)
+      setMessages(prev => [...prev, {
+        id: nextId(),
+        role: 'ai',
+        text: 'Failed to process the document. Please ensure it is a readable PDF.',
+        timestamp: new Date()
+      }])
+    } finally {
+      setIsTyping(false)
+    }
   }, [])
 
   return {
     messages,
     isTyping,
-    stageIndex,
-    uploadedFile,
     sendMessage,
     handleQuickReply,
     handleFileUpload,

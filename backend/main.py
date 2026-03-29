@@ -21,8 +21,8 @@ app = FastAPI(title="Advanced Niveshak AI - Luxury Wealth Tech")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],       # Auth uses Bearer headers, not cookies → credentials=False is correct
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
